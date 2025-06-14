@@ -14,6 +14,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <openssl/err.h>
 #include <secp256k1.h>
 
 struct Result {
@@ -88,23 +90,13 @@ void keccak_256(uint8_t* output, const uint8_t* input, size_t input_len) {
 }
 
 void secure_random(uint8_t* buffer, size_t size) {
-    int fd = open("/dev/urandom", O_RDONLY);
-    if (fd < 0) {
-        perror("Failed to open /dev/urandom");
+    if (RAND_bytes(buffer, size) != 1) {
+        unsigned long err_code = ERR_get_error();
+        const char* err_str = ERR_error_string(err_code, nullptr);
+        
+        std::cerr << "Ошибка генерации случайных чисел: " << err_str << std::endl;
         exit(1);
     }
-    
-    size_t bytes_read = 0;
-    while (bytes_read < size) {
-        ssize_t result = read(fd, buffer + bytes_read, size - bytes_read);
-        if (result <= 0) {
-            perror("Error reading from /dev/urandom");
-            close(fd);
-            exit(1);
-        }
-        bytes_read += static_cast<size_t>(result);
-    }
-    close(fd);
 }
 
 void worker(int min_consecutive, double min_percent, bool check_percent) {
