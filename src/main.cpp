@@ -43,24 +43,36 @@ std::string bytes_to_hex(const uint8_t* data, size_t len) {
     return ss.str();
 }
 
-int find_max_consecutive(const std::string& s) {
+int find_max_consecutive(const std::string& s, bool search_from_end = false) {
     if (s.empty()) return 0;
-    
-    int max_count = 1;
-    int current_count = 1;
-    
-    for (size_t i = 1; i < s.length(); ++i) {
-        if (s[i] == s[i-1]) {
-            current_count++;
-            if (current_count > max_count) {
-                max_count = current_count;
+    if (search_from_end) {
+        int count = 1;
+        char last_char = s[s.size() - 1];
+        for (int i = s.size() - 2; i >= 0; i--) {
+            if (s[i] == last_char) {
+                count++;
+            } else {
+                break;
             }
-        } else {
-            current_count = 1;
         }
+        return count;
+    } else {
+        int max_count = 1;
+        int current_count = 1;
+
+        for (size_t i = 1; i < s.length(); ++i) {
+            if (s[i] == s[i-1]) {
+                current_count++;
+                if (current_count > max_count) {
+                    max_count = current_count;
+                }
+            } else {
+                current_count = 1;
+            }
+        }
+        
+        return max_count;
     }
-    
-    return max_count;
 }
 
 double calculate_repetition_percentage(const std::string& s) {
@@ -99,7 +111,7 @@ void secure_random(uint8_t* buffer, size_t size) {
     }
 }
 
-void worker(int min_consecutive, double min_percent, bool check_percent) {
+void worker(int min_consecutive, double min_percent, bool check_percent, bool search_from_end) {
     secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
     uint8_t priv_key[32];
     uint8_t pubkey_serialized[65];
@@ -120,7 +132,7 @@ void worker(int min_consecutive, double min_percent, bool check_percent) {
         memcpy(address_bytes, hash + 12, 20);
         std::string address_hex = bytes_to_hex(address_bytes, 20);
         
-        int max_consecutive = find_max_consecutive(address_hex);
+        int max_consecutive = find_max_consecutive(address_hex, search_from_end);
         double repetition_percent = check_percent ? calculate_repetition_percentage(address_hex) : 0.0;
 
         counter.fetch_add(1, std::memory_order_relaxed);
@@ -143,53 +155,84 @@ void worker(int min_consecutive, double min_percent, bool check_percent) {
 }
 
 void print_usage(const char* prog_name) {
-    std::cerr << "Использование: " << prog_name << " <min_consecutive> [min_percent]\n"
-              << "Примеры:\n"
-              << "  " << prog_name << " 7        # Поиск последовательностей из 7+ одинаковых символов\n"
-              << "  " << prog_name << " 6 40.0   # Последовательности (6+) ИЛИ процент повторений (40.0%+)\n"
-              << "По умолчанию: min_consecutive=10\n";
+    std::cerr << "Генератор Ethereum-адресов с заданными паттернами\n\n"; 
+    std::cerr << "Использование: " << prog_name << " [ОПЦИИ] [min_consecutive] [min_percent]\n\n";
+    
+    std::cerr << "Опции:\n";
+    std::cerr << "  -e, --end     Искать последовательность в КОНЦЕ адреса\n";
+    std::cerr << "  -h, --help    Показать эту справку\n\n";
+    
+    std::cerr << "Параметры:\n";
+    std::cerr << "  min_consecutive  Минимальная длина последовательности (целое число, по умолчанию: 10)\n";
+    std::cerr << "  min_percent      Минимальный процент повторений (дробное число, необязательно)\n\n";
+    
+    std::cerr << "Примеры:\n";
+    std::cerr << "  " << prog_name << " 7           # Поиск 7+ одинаковых символов\n";
+    std::cerr << "  " << prog_name << " 6 40.0      # 6+ символов ИЛИ 40% повторений\n";
+    std::cerr << "  " << prog_name << " -e 8        # 8+ символов в КОНЦЕ адреса\n";
+    std::cerr << "  " << prog_name << " --end 5 30  # 5+ символов в КОНЦЕ ИЛИ 30% повторений\n";
+    std::cerr << "  " << prog_name << " 5 25 -e     # Комбинированный вариант (порядок не важен)\n\n";
+    
+    std::cerr << "Примечание:\n";
+    std::cerr << "  - Значения по умолчанию: min_consecutive=7, min_percent=0.0\n";
+    std::cerr << "  - Флаги (-e/--end) можно указывать в любом месте командной строки\n";
+    std::cerr << "  - Результаты сохраняются в файл 'extreme_addresses.txt'\n";
+    std::cerr << "  - Для остановки программы нажми Ctrl+C\n";
 }
 
 int main(int argc, char* argv[]) {
-    int min_consecutive = 10;
+    int min_consecutive = 7;
     double min_percent = 0.0;
     bool check_percent = false;
+    bool search_from_end = false;
+    
+    // Вектор для позиционных числовых аргументов
+    std::vector<std::string> positional_args;
 
-    if (argc > 1) {
-        if (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h") {
+    // Парсинг аргументов командной строки
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+
+        if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
+        } else if (arg == "--end" || arg == "-e") {
+            search_from_end = true;
+        } else {
+            positional_args.push_back(arg);
         }
-        
-        try {
-            min_consecutive = std::stoi(argv[1]);
-            if (argc > 2) {
-                min_percent = std::stod(argv[2]);
-                check_percent = true;
-            }
-        } catch (const std::exception& e) {
-            std::cerr << "Ошибка: неверные параметры\n";
-            print_usage(argv[0]);
-            return 1;
+    }
+
+    try {
+        if (positional_args.size() >= 1) {
+            min_consecutive = std::stoi(positional_args[0]);
         }
+        if (positional_args.size() >= 2) {
+            min_percent = std::stod(positional_args[1]);
+            check_percent = true;
+        }
+        if (positional_args.size() > 2) {
+            std::cerr << "Ошибка: слишком много позиционных аргументов\n";
+        }
+    } catch (const std::exception&) {
+        std::cerr << "Ошибка: неверный формат аргументов\n";
+        return 1; 
     }
 
     const unsigned num_threads = std::thread::hardware_concurrency();
     std::signal(SIGINT, signal_handler);
     std::vector<std::thread> threads;
-    
-    std::cout << "[🔍] Поиск адресов с параметрами:\n"
-              << " - Минимальная длина последовательности: " << min_consecutive << "+ одинаковых символов\n";
-    if (check_percent) {
-        std::cout << " - Минимальный процент повторений: " << min_percent << "%\n";
-    } else {
-        std::cout << " - Поиск только по последовательностям (процент не учитывается)\n";
-    }
-    std::cout << " - Потоков: " << num_threads << "\n";
-    std::cout << "Нажми Ctrl+C для остановки\n\n";
+
+    std::cout   << "🔍 Параметры поиска:\n"
+                << " ├─ Минимальная длина последовательности: " << min_consecutive << "\n"
+                << " ├─ Область поиска: " << (search_from_end ? "конец адреса" : "вся длина адреса") << "\n"
+                << " └─ Критерий: " << (check_percent ? "повторы " + std::to_string(min_percent) + "%+" : "только последовательности") << "\n\n"
+                
+                << " • Потоков: " << num_threads << "\n"
+                << "ℹ️ Нажми Ctrl+C для остановки\n\n";
     
     for (unsigned i = 0; i < num_threads; ++i) {
-        threads.emplace_back(worker, min_consecutive, min_percent, check_percent);
+        threads.emplace_back(worker, min_consecutive, min_percent, check_percent, search_from_end);
     }
     
     std::ofstream outfile("extreme_addresses.txt", std::ios::app);
@@ -207,7 +250,7 @@ int main(int argc, char* argv[]) {
         
         while (!local_queue.empty()) {
             auto res = local_queue.front();
-            std::cout << "\n[🎉] Найден адрес: 0x" << res.address_hex << "\n"
+            std::cout << "\n🎉 Найден адрес: 0x" << res.address_hex << "\n"
                       << "Приватный ключ: " << res.priv_key_hex << "\n"
                       << "Максимальная последовательность: " << res.max_consecutive << " символов\n";
             if (check_percent) {
