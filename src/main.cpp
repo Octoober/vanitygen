@@ -251,10 +251,10 @@ int main(int argc, char* argv[]) {
         while (!local_queue.empty()) {
             auto res = local_queue.front();
             std::cout << "\n🎉 Найден адрес: 0x" << res.address_hex << "\n"
-                      << "Приватный ключ: " << res.priv_key_hex << "\n"
-                      << "Максимальная последовательность: " << res.max_consecutive << " символов\n";
+                      << " • Приватный ключ: " << res.priv_key_hex << "\n"
+                      << " • Максимальная последовательность: " << res.max_consecutive << " символов\n";
             if (check_percent) {
-                std::cout << "Процент повторений: " << res.repetition_percent << "%\n";
+                std::cout << " • Процент повторений: " << res.repetition_percent << "%\n";
             }
             
             outfile << "0x" << res.address_hex << "," << res.priv_key_hex << "," 
